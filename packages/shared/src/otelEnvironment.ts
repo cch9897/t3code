@@ -38,6 +38,10 @@ export const none: OtelEnvironment = {
 
 export const load: Effect.Effect<OtelEnvironment> = Effect.succeed(none);
 
+export const isCiEnvironment = (_env: Readonly<Record<string, string | undefined>>) => false;
+
+export const isDoNotTrackSet = (_env: Readonly<Record<string, string | undefined>>) => false;
+
 export const isRelayTracingEnabled = (_env: Readonly<Record<string, string | undefined>>) => false;
 
 export type SignalName = "traces" | "metrics" | "logs";

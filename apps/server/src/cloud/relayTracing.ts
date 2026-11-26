@@ -1,5 +1,10 @@
 import * as RelayTracing from "@t3tools/shared/relayTracing";
 
+export const allowedFor = (
+  _env?: Readonly<Record<string, string | undefined>>,
+  _policy?: unknown,
+): boolean => false;
+
 export const relayLayer = (
   resource: Omit<RelayTracing.RelayClientTracingResource, "serviceInstanceId">,
   _tracingConfig: RelayTracing.RelayClientTracingConfig | null = null,
