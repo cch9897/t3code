@@ -132,6 +132,10 @@ jobs:
         with:
           install-args: --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
 
+      - name: Ensure Vite+ bin on Windows PATH
+        shell: pwsh
+        run: Add-Content -Path $env:GITHUB_PATH -Value "$env:USERPROFILE\.vite-plus\bin"
+
       - name: Resolve version and Rust target
         id: meta
         shell: bash
