@@ -393,35 +393,4 @@ export class ProviderTurnAnalytics extends Context.Reference<{
   }),
 }) {}
 
-export const layer = Layer.effect(
-  ProviderTurnAnalytics,
-  Effect.gen(function* () {
-    const analytics = yield* AnalyticsService.AnalyticsService;
-    const registry = yield* ProviderRegistry.ProviderRegistry;
-    const ledger = new RequestUsageLedger();
-    const labeler = Effect.map(
-      registry.getProviders,
-      (providers): ModelLabeler =>
-        (model) =>
-          modelLabel(providers, model),
-    );
-    return {
-      runStarted: Effect.fn("ProviderTurnAnalytics.runStarted")((input) =>
-        Effect.sync(() => ledger.start(input.runId, input.driver, input.context)),
-      ),
-      turnCompleted: Effect.fn("ProviderTurnAnalytics.turnCompleted")(function* (report) {
-        ledger.add(report);
-        yield* analytics.record(
-          "provider.turn.completed",
-          providerTurnProperties(report, yield* labeler),
-        );
-      }),
-      runSettled: Effect.fn("ProviderTurnAnalytics.runSettled")(function* (report) {
-        const properties = ledger.settle(report, yield* labeler);
-        if (properties !== undefined) {
-          yield* analytics.record("provider.request.completed", properties);
-        }
-      }),
-    };
-  }),
-);
+export const layer = Layer.empty;

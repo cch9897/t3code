@@ -1,0 +1,257 @@
+name: Build No-Telemetry Clients (Windows & iOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_windows:
+        description: Build Windows desktop installer (NSIS)
+        type: boolean
+        default: true
+      win_arch:
+        description: Windows architecture
+        type: choice
+        default: x64
+        options:
+          - x64
+          - arm64
+      build_ios:
+        description: Build unsigned iOS IPA
+        type: boolean
+        default: true
+      ios_bundle_id:
+        description: iOS bundle identifier (reverse-DNS, used for personal-team / unsigned sideload build)
+        type: string
+        default: com.t3code.notel
+
+permissions:
+  contents: read
+
+jobs:
+  build-js-and-wsl:
+    name: Build JS bundle & Linux WSL runtime
+    if: inputs.build_windows != false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git -c checkout.workers=0 checkout --detach FETCH_HEAD
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          version="$(node -p 'require("./apps/desktop/package.json").version')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build desktop JS bundle (web + server + electron)
+        run: vp run build:desktop
+
+      - name: Upload JS bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: js-bundle
+          path: |
+            apps/server/dist
+            apps/desktop/dist-electron
+          if-no-files-found: error
+
+      - name: Setup Rust (Linux x64 for WSL runtime)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Build Linux resource monitor
+        run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target x86_64-unknown-linux-gnu
+
+      - name: Build Linux CLI single-executable
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      - name: Install patchelf
+        run: command -v patchelf || { sudo apt-get update && sudo apt-get install -y patchelf; }
+
+      - name: Stage resource monitor and build Linux CLI archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_dir="$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          mkdir -p "$target_dir"
+          cp native/resource-monitor/target/x86_64-unknown-linux-gnu/release/t3-resource-monitor "$target_dir/t3-resource-monitor"
+          node scripts/build-cli-archive.ts \
+            --platform linux \
+            --arch x64 \
+            --version "${{ steps.meta.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+
+      - name: Upload Linux WSL runtime archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-linux-x64
+          path: release-cli/*
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows Desktop (${{ inputs.win_arch || 'x64' }})
+    needs: [build-js-and-wsl]
+    if: inputs.build_windows != false
+    runs-on: windows-latest
+    timeout-minutes: 50
+    env:
+      WIN_ARCH: ${{ inputs.win_arch || 'x64' }}
+    steps:
+      - name: Checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git -c checkout.workers=0 checkout --detach FETCH_HEAD
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+
+      - name: Resolve version and Rust target
+        id: meta
+        shell: bash
+        run: |
+          version="$(node -p 'require("./apps/desktop/package.json").version')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$WIN_ARCH" == "arm64" ]]; then
+            echo "rust_target=aarch64-pc-windows-msvc" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust_target=x86_64-pc-windows-msvc" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ steps.meta.outputs.rust_target }}
+
+      - name: Download JS bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: js-bundle
+          path: apps
+
+      - name: Download Linux WSL runtime archive
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-linux-x64
+          path: wsl-runtime
+
+      - name: Build Windows resource monitor
+        shell: bash
+        run: cargo build --locked --release --manifest-path native/resource-monitor/Cargo.toml --target "${{ steps.meta.outputs.rust_target }}"
+
+      - name: Package Windows NSIS installer
+        shell: bash
+        env:
+          T3CODE_DESKTOP_REUSE_RESOURCE_MONITOR: true
+        run: |
+          set -euo pipefail
+          wsl_archive="$(ls "$GITHUB_WORKSPACE"/wsl-runtime/t3-*-linux-x64.tar.gz | head -n 1)"
+          node scripts/build-desktop-artifact.ts \
+            --platform win \
+            --target nsis \
+            --arch "$WIN_ARCH" \
+            --build-version "${{ steps.meta.outputs.version }}" \
+            --skip-build \
+            --verbose \
+            --wsl-runtime "$wsl_archive"
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-desktop-${{ inputs.win_arch || 'x64' }}-no-telemetry
+          path: release/*
+          if-no-files-found: error
+
+  build-ios:
+    name: Build iOS Client (unsigned IPA)
+    if: inputs.build_ios != false
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      APP_VARIANT: production
+      T3CODE_IOS_PERSONAL_TEAM: "1"
+      T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID: ${{ inputs.ios_bundle_id || 'com.t3code.notel' }}
+      T3CODE_MOBILE_UPDATES_ENABLED: "0"
+      EXPO_NO_GIT_STATUS: "1"
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - name: Checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git sparse-checkout set --no-cone '/*' '!/.repos/'
+          git -c checkout.workers=0 checkout --detach FETCH_HEAD
+
+      - name: Setup dependencies
+        uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/mobile...
+
+      - name: Prebuild iOS native project
+        working-directory: apps/mobile
+        run: npx expo prebuild --clean --platform ios
+
+      - name: Install CocoaPods
+        working-directory: apps/mobile/ios
+        run: pod install
+
+      - name: Build unsigned Release .app and package .ipa
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          workspace="$(find ios -maxdepth 1 -name '*.xcworkspace' | head -n 1)"
+          scheme="$(basename "$workspace" .xcworkspace)"
+          derived_data="$RUNNER_TEMP/ios-derived-data"
+
+          xcodebuild \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$derived_data" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
+
+          app_path="$(find "$derived_data/Build/Products/Release-iphoneos" -maxdepth 1 -name '*.app' | head -n 1)"
+          if [[ -z "$app_path" ]]; then
+            echo "::error::No .app bundle produced in $derived_data/Build/Products/Release-iphoneos"
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/ipa-stage/Payload" release-ios
+          cp -R "$app_path" "$RUNNER_TEMP/ipa-stage/Payload/"
+          (cd "$RUNNER_TEMP/ipa-stage" && zip -qry "$GITHUB_WORKSPACE/apps/mobile/release-ios/T3Code-iOS-no-telemetry-unsigned.ipa" Payload)
+
+      - name: Upload unsigned iOS IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-client-no-telemetry-unsigned-ipa
+          path: apps/mobile/release-ios/T3Code-iOS-no-telemetry-unsigned.ipa
+          if-no-files-found: error

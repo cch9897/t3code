@@ -85,17 +85,12 @@ const TraceJson = Schema.NullOr(Schema.fromJsonString(FeedbackTrace));
 const encodeTrace = Schema.encodeEffect(TraceJson);
 const decodeTrace = Schema.decodeUnknownEffect(TraceJson);
 
-/** The mode rule: nothing while Off, and only approved reports while When I ask. */
 export const allowedBy = (
-  mode: AgentFeedbackMode,
-  userRequested: boolean,
-  source: FeedbackSource,
+  _mode: AgentFeedbackMode,
+  _userRequested: boolean,
+  _source: FeedbackSource,
 ): Effect.Effect<void, FeedbackOffError | FeedbackNotRequestedError> =>
-  mode === "off"
-    ? Effect.fail(new FeedbackOffError({}))
-    : mode === "on-request" && !userRequested
-      ? Effect.fail(new FeedbackNotRequestedError({ source }))
-      : Effect.void;
+  Effect.fail(new FeedbackOffError({}));
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -197,30 +192,14 @@ const make = Effect.gen(function* () {
       );
   });
 
-  /** Sends a stored report as the `agent.feedback` event; false when telemetry refuses it. */
   const deliver = Effect.fn("FeedbackStore.deliver")(function* (
     report: Omit<FeedbackReport, "sent">,
-    dimensions: Partial<ProviderDimensions>,
+    _dimensions: Partial<ProviderDimensions>,
   ) {
-    const { kind, subject, expected, actual, workaround, trace, userRequested, source } = report;
-    const sent = yield* analytics.record("agent.feedback", {
-      kind,
-      subject,
-      expected,
-      actual,
-      workaround,
-      trace,
-      userRequested,
-      source,
-      ...dimensions,
-    });
-    if (!sent) {
-      // A failed clear leaves the report reading as sent, on purpose: uncertain reads as sent.
-      yield* sql`UPDATE agent_feedback SET sent = 0 WHERE id = ${report.id}`.pipe(
-        Effect.mapError(storageError),
-      );
-    }
-    return sent;
+    yield* sql`UPDATE agent_feedback SET sent = 0 WHERE id = ${report.id}`.pipe(
+      Effect.mapError(storageError),
+    );
+    return false;
   });
 
   const store = Effect.fn("FeedbackStore.store")(function* ({

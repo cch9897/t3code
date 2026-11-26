@@ -362,11 +362,9 @@ export default defineConfig(({ command }) => {
       "import.meta.env.VITE_CLERK_CLI_OAUTH_CLIENT_ID": JSON.stringify(
         configuredClerkCliOAuthClientId,
       ),
-      "import.meta.env.VITE_RELAY_OTLP_TRACES_URL": JSON.stringify(configuredRelayTracingUrl),
-      "import.meta.env.VITE_RELAY_OTLP_TRACES_DATASET": JSON.stringify(
-        configuredRelayTracingDataset,
-      ),
-      "import.meta.env.VITE_RELAY_OTLP_TRACES_TOKEN": JSON.stringify(configuredRelayTracingToken),
+      "import.meta.env.VITE_RELAY_OTLP_TRACES_URL": JSON.stringify(""),
+      "import.meta.env.VITE_RELAY_OTLP_TRACES_DATASET": JSON.stringify(""),
+      "import.meta.env.VITE_RELAY_OTLP_TRACES_TOKEN": JSON.stringify(""),
       "import.meta.env.VITE_HOSTED_APP_URL": JSON.stringify(configuredHostedAppUrl ?? ""),
       "import.meta.env.VITE_HOSTED_APP_CHANNEL": JSON.stringify(configuredHostedAppChannel),
       "import.meta.env.T3CODE_DESKTOP_UPDATE_REPOSITORY": JSON.stringify(

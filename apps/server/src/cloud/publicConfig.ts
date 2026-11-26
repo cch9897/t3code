@@ -16,9 +16,6 @@ declare const __T3CODE_BUILD_RELAY_URL__: string | undefined;
 declare const __T3CODE_BUILD_CHANNEL__: "nightly" | "latest" | undefined;
 declare const __T3CODE_BUILD_CLERK_PUBLISHABLE_KEY__: string | undefined;
 declare const __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__: string | undefined;
-declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__: string | undefined;
-declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__: string | undefined;
-declare const __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__: string | undefined;
 
 const CLOUD_CLI_OAUTH_LOOPBACK_PORT = 34338;
 const CLOUD_CLI_OAUTH_SCOPES = CONNECT_OAUTH_SCOPES;
@@ -65,40 +62,25 @@ const buildTimeClerkCliOAuthClientId = readBuildTimeValue(
     ? undefined
     : __T3CODE_BUILD_CLERK_CLI_OAUTH_CLIENT_ID__,
 );
-const buildTimeRelayClientTracing = {
-  tracesUrl: readBuildTimeValue(
-    typeof __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__ === "undefined"
-      ? undefined
-      : __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_URL__,
-  ),
-  tracesDataset: readBuildTimeValue(
-    typeof __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__ === "undefined"
-      ? undefined
-      : __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_DATASET__,
-  ),
-  tracesToken: readBuildTimeValue(
-    typeof __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__ === "undefined"
-      ? undefined
-      : __T3CODE_BUILD_RELAY_CLIENT_OTLP_TRACES_TOKEN__,
-  ),
-} as const;
+const buildTimeRelayClientTracing: {
+  readonly tracesUrl: string;
+  readonly tracesDataset: string;
+  readonly tracesToken: string;
+} = {
+  tracesUrl: "",
+  tracesDataset: "",
+  tracesToken: "",
+};
 
 export function resolveRelayClientTracingConfig(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-  fallback = buildTimeRelayClientTracing,
+  _env: Readonly<Record<string, string | undefined>> = process.env,
+  _fallback: {
+    readonly tracesUrl: string;
+    readonly tracesDataset: string;
+    readonly tracesToken: string;
+  } = buildTimeRelayClientTracing,
 ) {
-  if (!isRelayTracingEnabled(env)) {
-    return null;
-  }
-
-  const tracesUrl = env.T3CODE_RELAY_CLIENT_OTLP_TRACES_URL?.trim() || fallback.tracesUrl;
-  const tracesDataset =
-    env.T3CODE_RELAY_CLIENT_OTLP_TRACES_DATASET?.trim() || fallback.tracesDataset;
-  const tracesToken = env.T3CODE_RELAY_CLIENT_OTLP_TRACES_TOKEN?.trim() || fallback.tracesToken;
-  const normalizedTracesUrl = normalizeSecureUrl(tracesUrl);
-  return normalizedTracesUrl && tracesDataset && tracesToken
-    ? { tracesUrl: normalizedTracesUrl, tracesDataset, tracesToken }
-    : null;
+  return null;
 }
 
 export function makeRelayUrlConfig(fallback = buildTimeRelayUrl) {
